@@ -2349,31 +2349,21 @@ void Player::UpdateFreeTalentPoints(bool resetIfNeed)
 {
     uint32 level = getLevel();
     // talents base at level diff ( talents = level - 9 but some can be used already)
-    if (level < 10)
+    // Custom talent solution for making them available at lvl 1.   
+    uint32 talentPointsForLevel = CalculateTalentsPoints();
+
+    // if used more that have then reset
+    if (m_usedTalentCount > talentPointsForLevel)
     {
-        // Remove all talent points
-        if (m_usedTalentCount > 0)                          // Free any used talents
-        {
-            if (resetIfNeed)
-                resetTalents(true);
+        if (resetIfNeed && GetSession()->GetSecurity() < SEC_ADMINISTRATOR)
+            resetTalents(true);
+        else
             SetFreeTalentPoints(0);
-        }
     }
+    // else update amount of free points
     else
     {
-        uint32 talentPointsForLevel = CalculateTalentsPoints();
-
-        // if used more that have then reset
-        if (m_usedTalentCount > talentPointsForLevel)
-        {
-            if (resetIfNeed && GetSession()->GetSecurity() < SEC_ADMINISTRATOR)
-                resetTalents(true);
-            else
-                SetFreeTalentPoints(0);
-        }
-        // else update amount of free points
-        else
-            SetFreeTalentPoints(talentPointsForLevel - m_usedTalentCount);
+        SetFreeTalentPoints(talentPointsForLevel - m_usedTalentCount);
     }
 }
 
@@ -18297,7 +18287,8 @@ Item* Player::ConvertItem(Item* item, uint32 newItemId)
 
 uint32 Player::CalculateTalentsPoints() const
 {
-    uint32 talentPointsForLevel = getLevel() < 10 ? 0 : getLevel() - 9;
+    // Players start with 2 talent points and end up with 11 at lvl 10.
+    uint32 talentPointsForLevel = getLevel() + 1;
     return uint32(talentPointsForLevel * sWorld.getConfig(CONFIG_FLOAT_RATE_TALENT));
 }
 
