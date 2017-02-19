@@ -98,6 +98,7 @@ World::World(): mail_timer(0), mail_timer_expires(0)
     m_startTime = m_gameTime;
     m_maxActiveSessionCount = 0;
     m_maxQueuedSessionCount = 0;
+    m_MaintenanceTimeChecker = 0;
 
     m_defaultDbcLocale = LOCALE_enUS;
     m_availableDbcLocaleMask = 0;
@@ -140,6 +141,8 @@ void World::CleanupsBeforeStop()
     KickAll();                                       // save and kick all players
     UpdateSessions(1);                               // real players unload required UpdateSessions call
     sBattleGroundMgr.DeleteAllBattleGrounds();       // unload battleground templates before different singletons destroyed
+    sMapMgr.UnloadAll();                             // unload all grids (including locked in memory)
+    sScriptMgr.UnloadScriptLibrary();                // unload all scripts
 }
 
 /// Find a session by its id
@@ -790,6 +793,9 @@ void World::LoadConfigSettings(bool reload)
     MMAP::MMapFactory::preventPathfindingOnMaps(ignoreMapIds.c_str());
     sLog.outString("WORLD: MMap pathfinding %sabled", getConfig(CONFIG_BOOL_MMAP_ENABLED) ? "en" : "dis");
 
+    setConfig(CONFIG_BOOL_PATH_FIND_OPTIMIZE, "PathFinder.OptimizePath", true);
+    setConfig(CONFIG_BOOL_PATH_FIND_NORMALIZE_Z, "PathFinder.NormalizeZ", false);
+
     sLog.outString();
 }
 
@@ -839,6 +845,10 @@ void World::SetInitialWorldSettings()
 
     ///- Remove the bones (they should not exist in DB though) and old corpses after a restart
     CharacterDatabase.PExecute("DELETE FROM corpse WHERE corpse_type = '0' OR time < (UNIX_TIMESTAMP()-'%u')", 3 * DAY);
+
+    /// load spell_dbc first! dbc's need them
+    sLog.outString("Loading spell_template...");
+    sObjectMgr.LoadSpellTemplate();
 
     ///- Load the DBC files
     sLog.outString("Initialize DBC data stores...");
@@ -993,8 +1003,10 @@ void World::SetInitialWorldSettings()
     sLog.outString(">>> Game Event Data loaded");
     sLog.outString();
 
-    // Load Conditions
-    sLog.outString("Loading Conditions...");
+    sLog.outString("Loading Dungeon Encounters...");
+    sObjectMgr.LoadDungeonEncounters();                     // Load DungeonEncounter.dbc from DB
+
+    sLog.outString("Loading Conditions...");                // Load Conditions
     sObjectMgr.LoadConditions();
 
     sLog.outString("Creating map persistent states for non-instanceable maps...");     // must be after PackInstances(), LoadCreatures(), sPoolMgr.LoadFromDB(), sGameEventMgr.LoadFromDB();
@@ -1067,6 +1079,9 @@ void World::SetInitialWorldSettings()
 
     sLog.outString("Loading Skill Fishing base level requirements...");
     sObjectMgr.LoadFishingBaseSkillLevel();
+
+    sLog.outString("Loading Instance encounters data...");  // must be after Creature loading
+    sObjectMgr.LoadInstanceEncounters();
 
     sLog.outString("Loading Npc Text Id...");
     sObjectMgr.LoadNpcGossips();                            // must be after load Creature and LoadGossipText
@@ -1174,9 +1189,6 @@ void World::SetInitialWorldSettings()
             break;
         case SCRIPT_LOAD_ERR_WRONG_API:
             sLog.outError("Scripting library has wrong list functions (outdated?).");
-            break;
-        case SCRIPT_LOAD_ERR_OUTDATED:
-            sLog.outError("Scripting library build for old mangosd revision. You need rebuild it.");
             break;
     }
     sLog.outString();
