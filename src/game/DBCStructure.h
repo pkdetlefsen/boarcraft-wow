@@ -785,7 +785,7 @@ struct StableSlotPricesEntry
     uint32 Price;                                           //          m_cost
 };
 
-#define MAX_TALENT_RANK 5
+#define MAX_TALENT_RANK 1									// Boarcraft custom max talent rank of 1
 
 struct TalentEntry
 {
