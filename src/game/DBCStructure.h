@@ -793,7 +793,7 @@ struct TalentEntry
     uint32    TalentTab;                                    // 1        m_tabID (TalentTab.dbc)
     uint32    Row;                                          // 2        m_tierID
     uint32    Col;                                          // 3        m_columnIndex
-    uint32    RankID[MAX_TALENT_RANK];                      // 4-8      m_spellRank
+    uint32    RankID[5];									// 4-8      m_spellRank  Boarcraft edit: array must still have 5 slots, to make sure server finds DependsOn.
     // 9-12 part of prev field
     uint32    DependsOn;                                    // 13       m_prereqTalent (Talent.dbc)
     // 14-15 part of prev field
