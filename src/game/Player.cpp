@@ -18335,8 +18335,12 @@ Item* Player::ConvertItem(Item* item, uint32 newItemId)
 
 uint32 Player::CalculateTalentsPoints() const
 {
-    // Players start with 2 talent points and end up with 11 at lvl 10.
-    uint32 talentPointsForLevel = getLevel() + 1;
+    // Boarcraft edit: Players start with 1 talent point and end up with 11 at lvl 10.	
+    uint32 talentPointsForLevel = getLevel();
+	if (getLevel() >= 10)
+	{
+		++talentPointsForLevel;
+	}
     return uint32(talentPointsForLevel * sWorld.getConfig(CONFIG_FLOAT_RATE_TALENT));
 }
 
