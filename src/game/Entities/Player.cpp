@@ -12111,6 +12111,12 @@ void Player::RewardQuest(Quest const* pQuest, uint32 reward, Object* questGiver,
 
     // resend quests status directly
     SendQuestGiverStatusMultiple();
+
+	// Boarcraft edit: Check if amount of talent points should be recalculated.
+	if (10000 <= quest_id && quest_id <= 10006)
+	{
+		UpdateFreeTalentPoints();
+	}
 }
 
 void Player::FailQuest(uint32 questId)
@@ -18354,12 +18360,41 @@ Item* Player::ConvertItem(Item* item, uint32 newItemId)
 
 uint32 Player::CalculateTalentsPoints() const
 {
-    // Boarcraft edit: Players start with 1 talent point and end up with 11 at lvl 10.	
-    uint32 talentPointsForLevel = getLevel();
-	if (getLevel() >= 10)
+    // Boarcraft edit: Players start getting 1 talent point and end up with 11 at lvl 10.	    
+	uint32 talentPointsForLevel = 0;
+	uint32 level = getLevel();
+	if (level == 5 || level == 6)
 	{
-		++talentPointsForLevel;
+		talentPointsForLevel = 1;
 	}
+	else if (level == 7 || level == 8)
+	{
+		talentPointsForLevel = 2;
+	}
+	else if (level == 9)
+	{
+		talentPointsForLevel = 3;
+	}
+	else if (level >= 10)
+	{
+		talentPointsForLevel = 4;
+	}
+
+	// Check for extra talent points from quests.
+	uint32 questIds[7] = { 10000, 10001, 10002, 10003, 10004, 10005, 10006 };
+	for (int32 i = 0; i < 7; ++i)
+	{
+		QuestStatusMap::const_iterator q_itr = mQuestStatus.find(questIds[i]);
+
+		// some quests can be auto taken and auto completed in one step
+		QuestStatus status = q_itr != mQuestStatus.end() ? q_itr->second.m_status : QUEST_STATUS_NONE;
+
+		if (status == QUEST_STATUS_COMPLETE)
+		{
+			talentPointsForLevel++;
+		}
+	}	
+
     return uint32(talentPointsForLevel * sWorld.getConfig(CONFIG_FLOAT_RATE_TALENT));
 }
 
