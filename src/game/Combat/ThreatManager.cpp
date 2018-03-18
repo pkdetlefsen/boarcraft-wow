@@ -215,7 +215,7 @@ void ThreatContainer::clearReferences()
     for (ThreatList::const_iterator i = iThreatList.begin(); i != iThreatList.end(); ++i)
     {
         (*i)->unlink();
-        delete(*i);
+        delete (*i);
     }
     iThreatList.clear();
 }
@@ -484,6 +484,14 @@ float ThreatManager::getThreat(Unit* pVictim, bool pAlsoSearchOfflineList)
     return threat;
 }
 
+bool ThreatManager::HasThreat(Unit * pVictim, bool pAlsoSearchOfflineList)
+{
+    HostileReference* ref = iThreatContainer.getReferenceByTarget(pVictim);
+    if (!ref && pAlsoSearchOfflineList)
+        ref = iThreatOfflineContainer.getReferenceByTarget(pVictim);
+    return bool(ref);
+}
+
 //============================================================
 
 void ThreatManager::tauntApply(Unit* pTaunter)
@@ -516,6 +524,12 @@ void ThreatManager::tauntFadeOut(Unit* pTaunter)
 void ThreatManager::setCurrentVictim(HostileReference* pHostileReference)
 {
     iCurrentVictim = pHostileReference;
+}
+
+void ThreatManager::setCurrentVictimByTarget(Unit* target)
+{
+    if (HostileReference* ref = iThreatContainer.getReferenceByTarget(target))
+        setCurrentVictim(ref);
 }
 
 //============================================================

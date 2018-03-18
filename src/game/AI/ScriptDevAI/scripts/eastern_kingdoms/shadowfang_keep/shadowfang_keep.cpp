@@ -370,18 +370,6 @@ struct mob_arugal_voidwalkerAI : public ScriptedAI
         m_uiCurrentPoint = uiNewPoint;
         m_bReverse = bReverse;
     }
-
-    void EnterEvadeMode() override
-    {
-        m_creature->RemoveAllAurasOnEvade();
-        m_creature->DeleteThreatList();
-        m_creature->CombatStop(true);
-        m_creature->LoadCreatureAddon(true);
-
-        m_creature->SetLootRecipient(nullptr);
-
-        Reset();
-    }
 };
 
 CreatureAI* GetAI_mob_arugal_voidwalker(Creature* pCreature)
@@ -811,6 +799,7 @@ struct npc_arugalAI : public ScriptedAI
 
                     m_creature->SetVisibility(VISIBILITY_OFF);
                     m_uiSpeechStep = 0;
+                    m_creature->ForcedDespawn();
                     return;
                 default:
                     m_uiSpeechStep = 0;
@@ -883,16 +872,6 @@ struct npc_deathstalker_vincentAI : public ScriptedAI
             EnterEvadeMode();
 
         ScriptedAI::UpdateAI(uiDiff);
-    }
-
-    void EnterEvadeMode() override
-    {
-        m_creature->RemoveAllAuras();
-        m_creature->DeleteThreatList();
-        m_creature->CombatStop(true);
-        m_creature->LoadCreatureAddon(true);
-        m_creature->SetLootRecipient(nullptr);
-        Reset();
     }
 };
 

@@ -370,7 +370,7 @@ enum RealmZone
 /// Storage class for commands issued for delayed execution
 struct CliCommandHolder
 {
-    typedef std::function<void(const char *)> Print;
+    typedef std::function<void(const char*)> Print;
     typedef std::function<void(bool)> CommandFinished;
 
     uint32 m_cliAccountId;                                  // 0 for console and real account id for RA/soap
@@ -467,8 +467,10 @@ class World
 
         void SetInitialWorldSettings();
         void LoadConfigSettings(bool reload = false);
+        void LoadSpamRecords(bool reload = false);
 
         void SendWorldText(int32 string_id, ...);
+        void SendWorldTextToAboveSecurity(uint32 securityLevel, int32 string_id, ...);
         void SendGlobalMessage(WorldPacket const& packet) const;
         void SendServerMessage(ServerMessageType type, const char* text = "", Player* player = nullptr) const;
         void SendZoneUnderAttackMessage(uint32 zoneId, Team team);
@@ -549,6 +551,7 @@ class World
         char const* GetDBVersion() const { return m_DBVersion.c_str(); }
         char const* GetCreatureEventAIVersion() const { return m_CreatureEventAIVersion.c_str(); }
 
+        std::vector<std::string> GetSpamRecords() { return m_spamRecords; }
 
         /**
         * \brief: force all client to request player data
@@ -631,7 +634,7 @@ class World
 
         // CLI command holder to be thread safe
         std::mutex m_cliCommandQueueLock;
-        std::deque<const CliCommandHolder *> m_cliCommandQueue;
+        std::deque<const CliCommandHolder*> m_cliCommandQueue;
 
         // Player Queue
         Queue m_QueuedSessions;
@@ -640,7 +643,7 @@ class World
         void AddSession_(WorldSession* s);
 
         std::mutex m_sessionAddQueueLock;
-        std::deque<WorldSession *> m_sessionAddQueue;
+        std::deque<WorldSession*> m_sessionAddQueue;
 
         // used versions
         std::string m_DBVersion;
@@ -648,6 +651,8 @@ class World
 
         // List of Maps that should be force-loaded on startup
         std::set<uint32> m_configForceLoadMapIds;
+
+        std::vector<std::string> m_spamRecords;
 
         static TimePoint m_currentTime;
 };

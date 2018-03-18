@@ -44,7 +44,8 @@
 
 GameObject::GameObject() : WorldObject(),
     m_model(nullptr),
-    m_goInfo(nullptr)
+    m_goInfo(nullptr),
+    m_AI(nullptr)
 {
     m_objectType |= TYPEMASK_GAMEOBJECT;
     m_objectTypeId = TYPEID_GAMEOBJECT;
@@ -65,7 +66,10 @@ GameObject::GameObject() : WorldObject(),
 
     m_isInUse = false;
     m_reStockTimer = 0;
+    m_rearmTimer = 0;
     m_despawnTimer = 0;
+
+    m_delayedActionTimer = 0;
 }
 
 GameObject::~GameObject()
@@ -82,7 +86,7 @@ void GameObject::AddToWorld()
     if (m_model)
         GetMap()->InsertGameObjectModel(*m_model);
 
-    Object::AddToWorld();
+    WorldObject::AddToWorld();
 
     // After Object::AddToWorld so that for initial state the GO is added to the world (and hence handled correctly)
     UpdateCollisionState();
@@ -354,7 +358,7 @@ void GameObject::Update(uint32 update_diff, uint32 p_time)
                     {
                         case 1: // friendly
                         {
-                            MaNGOS::AnyFriendlyUnitInObjectRangeCheck u_check(this, radius);
+                            MaNGOS::AnyFriendlyUnitInObjectRangeCheck u_check(this, nullptr, radius);
                             MaNGOS::UnitSearcher<MaNGOS::AnyFriendlyUnitInObjectRangeCheck> checker(target, u_check);
                             Cell::VisitAllObjects(this, checker, radius);
                             break;
@@ -408,6 +412,20 @@ void GameObject::Update(uint32 update_diff, uint32 p_time)
 
                         loot->Update();
                     }
+                    break;
+                case GAMEOBJECT_TYPE_TRAP:
+                    if (m_rearmTimer == 0)
+                    {
+                        m_rearmTimer = time(nullptr) + GetRespawnDelay();
+                        SetGoState(GO_STATE_ACTIVE_ALTERNATIVE);
+                    }
+
+                    if (m_rearmTimer < time(nullptr))
+                    {
+                        SetGoState(GO_STATE_READY);
+                        m_lootState = GO_READY;
+                        m_rearmTimer = 0;
+                    };
                     break;
                 case GAMEOBJECT_TYPE_GOOBER:
                     if (m_cooldownTime < time(nullptr))
@@ -530,6 +548,20 @@ void GameObject::Update(uint32 update_diff, uint32 p_time)
             break;
         }
     }
+
+    if (m_delayedActionTimer)
+    {
+        if (m_delayedActionTimer <= update_diff)
+        {
+            m_delayedActionTimer = 0;
+            TriggerDelayedAction();
+        }
+        else
+            m_delayedActionTimer -= update_diff;
+    }
+
+    if (m_AI)
+        m_AI->UpdateAI(update_diff);
 }
 
 void GameObject::Refresh()
@@ -689,6 +721,8 @@ bool GameObject::LoadFromDB(uint32 guid, Map* map)
         }
     }
 
+    AIM_Initialize();
+
     return true;
 }
 
@@ -806,20 +840,20 @@ bool GameObject::isVisibleForInState(Player const* u, WorldObject const* viewPoi
                 {
                     Player* ownerPlayer = (Player*)owner;
                     if ((GetMap()->IsBattleGround() && ownerPlayer->GetBGTeam() != u->GetBGTeam()) ||
-                        (ownerPlayer->IsInDuelWith(u)) ||
-                        (ownerPlayer->GetTeam() != u->GetTeam()))
+                            (ownerPlayer->IsInDuelWith(u)) ||
+                            (!ownerPlayer->IsInSameRaidWith(u)))
                         trapNotVisible = true;
                 }
                 else
                 {
-                    if (u->IsFriendlyTo(owner))
+                    if (owner->CanCooperate(u))
                         return true;
                 }
             }
             // handle environment traps (spawned by DB)
             else
             {
-                if (this->IsFriendlyTo(u))
+                if (this->IsFriend(u))
                     return true;
                 else
                     trapNotVisible = true;
@@ -960,6 +994,7 @@ void GameObject::SummonLinkedTrapIfAny() const
     }
 
     GetMap()->Add(linkedGO);
+    linkedGO->AIM_Initialize();
 }
 
 void GameObject::TriggerLinkedGameObject(Unit* target) const
@@ -1072,6 +1107,7 @@ void GameObject::Use(Unit* user)
     Unit* spellCaster = user;
     uint32 spellId = 0;
     uint32 triggeredFlags = 0;
+    bool originalCaster = true;
 
     // test only for exist cooldown data (cooldown timer used for door/buttons reset that not have use cooldown)
     if (uint32 cooldown = GetGOInfo()->GetCooldown())
@@ -1324,7 +1360,7 @@ void GameObject::Use(Unit* user)
             if (!scriptReturnValue)
                 GetMap()->ScriptsStart(sGameObjectScripts, GetGUIDLow(), spellCaster, this);
             else
-               return;
+                return;
 
             // cast this spell later if provided
             spellId = info->goober.spellId;
@@ -1459,6 +1495,9 @@ void GameObject::Use(Unit* user)
             if (user->GetTypeId() != TYPEID_PLAYER)
                 return;
 
+            if (m_delayedActionTimer)
+                return;
+
             Player* player = (Player*)user;
 
             Unit* owner = GetOwner();
@@ -1477,9 +1516,6 @@ void GameObject::Use(Unit* user)
                 // expect owner to already be channeling, so if not...
                 if (!owner->GetCurrentSpell(CURRENT_CHANNELED_SPELL))
                     return;
-
-                // in case summoning ritual caster is GO creator
-                spellCaster = owner;
             }
             else
             {
@@ -1493,48 +1529,23 @@ void GameObject::Use(Unit* user)
                     else
                         return;
                 }
-
-                spellCaster = player;
             }
 
             AddUniqueUse(player);
 
             if (info->summoningRitual.animSpell)
-            {
-                player->CastSpell(player, info->summoningRitual.animSpell, TRIGGERED_OLD_TRIGGERED);
-
-                // for this case, summoningRitual.spellId is always triggered
-                triggeredFlags = TRIGGERED_OLD_TRIGGERED;
-            }
+                player->CastSpell(player, info->summoningRitual.animSpell, TRIGGERED_NONE);
 
             // full amount unique participants including original summoner, need more
             if (GetUniqueUseCount() < info->summoningRitual.reqParticipants)
                 return;
 
-            // owner is first user for non-wild GO objects, if it offline value already set to current user
-            if (!GetOwnerGuid())
-                if (Player* firstUser = GetMap()->GetPlayer(m_firstUser))
-                    spellCaster = firstUser;
-
-            spellId = info->summoningRitual.spellId;
-
-            // spell have reagent and mana cost but it not expected use its
-            // it triggered spell in fact casted at currently channeled GO
-            triggeredFlags = TRIGGERED_OLD_TRIGGERED;
-
-            // finish owners spell
-            if (owner)
-                owner->FinishSpell(CURRENT_CHANNELED_SPELL);
-
-            // can be deleted now, if
-            if (!info->summoningRitual.ritualPersistent)
-                SetLootState(GO_JUST_DEACTIVATED);
-            // reset ritual for this GO
+            if (info->summoningRitualCustom.delay)
+                m_delayedActionTimer = info->summoningRitualCustom.delay;
             else
-                ClearAllUsesData();
+                TriggerSummoningRitual();
 
-            // go to end function to spell casting
-            break;
+            return;
         }
         case GAMEOBJECT_TYPE_SPELLCASTER:                   // 22
         {
@@ -1584,6 +1595,8 @@ void GameObject::Use(Unit* user)
                 return;
 
             spellId = 23598;
+
+            originalCaster = false; // the spell is cast by player even in sniff
 
             break;
         }
@@ -1677,7 +1690,7 @@ void GameObject::Use(Unit* user)
         return;
     }
 
-    Spell* spell = new Spell(spellCaster, spellInfo, triggeredFlags, GetObjectGuid());
+    Spell* spell = new Spell(spellCaster, spellInfo, triggeredFlags, originalCaster ? GetObjectGuid() : ObjectGuid());
 
     // spell target is user of GO
     SpellCastTargets targets;
@@ -1806,6 +1819,10 @@ void GameObject::SetLootState(LootState state)
 {
     m_lootState = state;
     UpdateCollisionState();
+
+    // Call for GameObjectAI script
+    if (m_AI)
+        m_AI->OnLootStateChange();
 }
 
 void GameObject::SetGoState(GOState state)
@@ -1954,8 +1971,7 @@ struct SpawnGameObjectInMapsWorker
             }
             else
             {
-                if (pGameobject->isSpawnedByDefault())
-                    map->Add(pGameobject);
+                map->Add(pGameobject);
             }
         }
     }
@@ -2029,6 +2045,9 @@ void GameObject::TickCapturePoint()
             // new player entered capture point zone
             m_UniqueUsers.insert(guid);
 
+            // update pvp info
+            (*itr)->pvpInfo.inPvPCapturePoint = true;
+
             // send capture point enter packets
             (*itr)->SendUpdateWorldState(info->capturePoint.worldState3, neutralPercent);
             (*itr)->SendUpdateWorldState(info->capturePoint.worldState2, oldValue);
@@ -2039,9 +2058,14 @@ void GameObject::TickCapturePoint()
 
     for (GuidSet::iterator itr = tempUsers.begin(); itr != tempUsers.end(); ++itr)
     {
-        // send capture point leave packet
         if (Player* owner = GetMap()->GetPlayer(*itr))
+        {
+            // update pvp info
+            owner->pvpInfo.inPvPCapturePoint = false;
+
+            // send capture point leave packet
             owner->SendUpdateWorldState(info->capturePoint.worldState1, WORLD_STATE_REMOVE);
+        }
 
         // player left capture point zone
         m_UniqueUsers.erase(*itr);
@@ -2199,4 +2223,65 @@ void GameObject::SetInUse(bool use)
         SetGoState(GO_STATE_ACTIVE);
     else
         SetGoState(GO_STATE_READY);
+}
+
+void GameObject::TriggerSummoningRitual()
+{
+    const GameObjectInfo* info = GetGOInfo();
+
+    Unit* owner = GetOwner();
+    Unit* caster = owner;
+
+    if (!owner)
+    {
+        if (Player* firstUser = GetMap()->GetPlayer(m_firstUser))
+            caster = firstUser;
+    }
+    else
+        // finish owners spell
+        owner->FinishSpell(CURRENT_CHANNELED_SPELL);
+
+    if (caster) // two caster checks to maintain order
+    {
+        for (GuidSet::const_iterator itr = m_UniqueUsers.begin(); itr != m_UniqueUsers.end(); ++itr)
+        {
+            if (*itr == caster->GetObjectGuid())
+                continue;
+
+            if (Player* pUnique = GetMap()->GetPlayer(*itr))
+                pUnique->FinishSpell(CURRENT_CHANNELED_SPELL);
+        }
+    }
+
+    // can be deleted now, if
+    if (!info->summoningRitual.ritualPersistent)
+        SetLootState(GO_JUST_DEACTIVATED);
+    // reset ritual for this GO
+    else
+        ClearAllUsesData();
+
+    if (caster)
+        caster->CastSpell(sObjectMgr.GetPlayer(m_actionTarget), info->summoningRitual.spellId, TRIGGERED_OLD_TRIGGERED, nullptr, nullptr, GetObjectGuid());
+}
+
+void GameObject::TriggerDelayedAction()
+{
+    switch (GetGoType())
+    {
+        case GAMEOBJECT_TYPE_SUMMONING_RITUAL:
+            TriggerSummoningRitual();
+            break;
+        default:
+            break;
+    }
+}
+
+uint32 GameObject::GetScriptId() const
+{
+    return ObjectMgr::GetGameObjectInfo(GetEntry())->ScriptId;
+}
+
+void GameObject::AIM_Initialize()
+{
+    m_AI.reset(sScriptDevAIMgr.GetGameObjectAI(this));
 }

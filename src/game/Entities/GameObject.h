@@ -23,6 +23,7 @@
 #include "Globals/SharedDefines.h"
 #include "Entities/Object.h"
 #include "Util.h"
+#include "AI/BaseAI/GameObjectAI.h"
 
 // GCC have alternative #pragma pack(N) syntax and old gcc version not support pack(push,N), also any gcc version not support it at some platform
 #if defined( __GNUC__ )
@@ -349,6 +350,12 @@ struct GameObjectInfo
             uint32 triggerOn;
         } trapCustom;
 
+        //18 GAMEOBJECT_TYPE_SUMMONING_RITUAL
+        struct
+        {
+            uint32 delay;
+        } summoningRitualCustom;
+
         struct
         {
             uint32 data[1];
@@ -660,6 +667,7 @@ class GameObject : public WorldObject
             m_UniqueUsers.clear();
         }
 
+        void SetActionTarget(ObjectGuid guid) { m_actionTarget = guid; };
         void AddUniqueUse(Player* player);
         void AddUse() { ++m_useTimes; }
         bool IsInUse() const { return m_isInUse; }
@@ -690,6 +698,14 @@ class GameObject : public WorldObject
         bool IsHostileTo(Unit const* unit) const override;
         bool IsFriendlyTo(Unit const* unit) const override;
 
+        ReputationRank GetReactionTo(Unit const* unit) const override;
+
+        bool IsEnemy(Unit const* unit) const override;
+        bool IsFriend(Unit const* unit) const override;
+
+        bool CanAttackSpell(Unit* target, SpellEntry const* spellInfo = nullptr, bool isAOE = false) const override;
+        bool CanAssistSpell(Unit* target, SpellEntry const* spellInfo = nullptr) const override;
+
         void SummonLinkedTrapIfAny() const;
         void TriggerLinkedGameObject(Unit* target) const;
 
@@ -705,6 +721,10 @@ class GameObject : public WorldObject
         float GetInteractionDistance() const;
 
         GridReference<GameObject>& GetGridRef() { return m_gridRef; }
+
+        uint32 GetScriptId() const;
+        void AIM_Initialize();
+        void OnEventHappened(uint16 eventId, bool activate, bool resume) override { return m_AI->OnEventHappened(eventId, activate, resume); }
 
         GameObjectModel* m_model;
 
@@ -735,10 +755,22 @@ class GameObject : public WorldObject
         ObjectGuid m_lootRecipientGuid;                     // player who will have rights for looting if m_lootGroupRecipient==0 or group disbanded
         uint32 m_lootGroupRecipientId;                      // group who will have rights for looting if set and exist
 
+        // Used for trap type
+        time_t m_rearmTimer;                                // timer to rearm the trap once disarmed
+
         // Used for chest type
         bool m_isInUse;                                     // only one player at time are allowed to open chest
         time_t m_reStockTimer;                              // timer to refill the chest
         time_t m_despawnTimer;                              // timer to despawn the chest if something changed in it
+
+        void TriggerSummoningRitual();
+        void TriggerDelayedAction();
+
+        uint32 m_delayedActionTimer;                        // used for delayed GO actions
+
+        ObjectGuid m_actionTarget;                          // used for setting target of Summoning rituals
+
+        std::unique_ptr<GameObjectAI> m_AI;
 
     private:
         void SwitchDoorOrButton(bool activate, bool alternative = false);
