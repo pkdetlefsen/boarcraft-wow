@@ -580,10 +580,6 @@ void WorldSession::LogoutPlayer(bool save)
 /// Kick a player out of the World
 void WorldSession::KickPlayer()
 {
-	// Fix from Razfury: https://github.com/cmangos/issues/issues/1177#issuecomment-310931994 
-	_player->SaveToDB(); // Save character information
-	_player->SaveInventoryAndGoldToDB(); // Save Inventory & gold
-
     if (m_Socket && !m_Socket->IsClosed())
         m_Socket->Close();
 }
